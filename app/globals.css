@@ -295,6 +295,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .booking-guest span { margin-top: 3px; color: #9aa5b3; font-size: 9px; }
 .booking-suite { color: #75869a; font-size: 10px; }
 
+/* Prevent grid and flex children from establishing a wider mobile canvas. */
+.module-stack,
+.overview-grid,
+.panel,
+.compact-list,
+.compact-row,
+.attention-list,
+.attention-item,
+.quick-actions,
+.quick-action-grid,
+.module-summary,
+.suite-overview,
+.suites-panel,
+.upcoming-panel { min-width: 0; }
+
 .floating-sync-area { position: fixed; right: 24px; bottom: 22px; z-index: 20; }
 .floating-sync { display: inline-flex; align-items: center; gap: 7px; padding: 10px 13px; border: 1px solid #dce6eb; border-radius: 9px; color: #4d8792; background: rgba(255,255,255,0.94); box-shadow: 0 8px 22px rgba(30,62,81,0.12); font-size: 10px; font-weight: 750; }
 .floating-sync:hover { border-color: #b5d2d9; color: #286b78; }
@@ -370,4 +385,5 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 @media (max-width: 480px) {
   .metric-grid { grid-template-columns: 1fr 1fr; }.metric-card { min-height: 92px; align-items: flex-start; flex-direction: column; }.metric-content strong { margin-top: 2px; }.metric-icon { width: 30px; height: 30px; flex-basis: 30px; }.metric-content { width: 100%; }.page-heading-actions { align-items: flex-start; flex-direction: column; }.page-heading-actions .button { margin-left: 0; }.sync-status { order: 2; }.suite-grid { grid-template-columns: 1fr; }.suite-card { min-height: 170px; }.hero-copy h2 { max-width: 260px; }.hero-copy p { max-width: 260px; }.summary-stats { display: grid; gap: 7px; }.drawer-actions { flex-direction: column; }.form-grid { grid-template-columns: 1fr; }.form-field-wide { grid-column: auto; }.dialog-card { padding: 22px 18px 19px; }.floating-sync-area { right: 13px; bottom: 13px; }.toast { right: 13px; bottom: 63px; left: 13px; max-width: none; }
+  .compact-row { align-items: flex-start; flex-wrap: wrap; row-gap: 7px; }.compact-main { min-width: 0; }.compact-destination { width: auto; max-width: calc(100% - 40px); margin-left: 40px; }.compact-row > .status-pill { margin-left: auto; }
 }
