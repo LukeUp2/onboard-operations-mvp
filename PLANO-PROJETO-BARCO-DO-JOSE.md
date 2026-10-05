@@ -1,8 +1,8 @@
 # Projeto Barco do José — plano preliminar
 
-**Status:** MVP web de validação publicado — aguardando teste e feedback do cliente.
+**Status:** MVP web de validação publicado — novos requisitos de alto nível recebidos em 5 de outubro de 2026; aguardando detalhamento e priorização antes da próxima implementação.
 
-**Data da versão:** 1.º de outubro de 2026.
+**Data da versão:** 5 de outubro de 2026.
 
 Este documento é um plano vivo. Ele registra o que foi entendido até agora, as hipóteses que precisam ser validadas e uma arquitetura candidata para orientar a próxima conversa com o cliente.
 
@@ -13,10 +13,68 @@ Este documento é um plano vivo. Ele registra o que foi entendido até agora, as
 O sistema poderá apoiar três operações do barco:
 
 1. **Encomendas:** registrar remetente, destinatário, endereço ou localidade, cidade, rota, características do volume, situação da entrega, cobrança e impressão de etiqueta.
-2. **Mercadinho:** cadastrar produtos, preços, estoque, entradas, perdas, ajustes, vendas e relatórios.
+2. **Lanchonete:** cadastrar produtos, preços, estoque, entradas, saídas, vendas, receitas, despesas e relatórios.
 3. **Suítes:** cadastrar quartos, consultar disponibilidade, criar e acompanhar reservas, registrar hóspedes, entrada, saída e situação de cada suíte.
 
 O problema transversal é a conectividade: o barco pode passar períodos sem sinal. Portanto, o sistema precisa continuar permitindo as operações essenciais sem internet e sincronizar os dados quando a conexão voltar.
+
+### 1.1. Requisitos recebidos do cliente — 5 de outubro de 2026
+
+Os itens abaixo foram informados pelo cliente e passam a ser **requisitos de alto nível confirmados**. Campos, regras, permissões, integrações e critérios de aceite ainda precisam ser detalhados.
+
+#### Lanchonete
+
+- Registrar entradas e saídas de estoque, em um fluxo semelhante ao de um mercado.
+- Registrar vendas realizadas na hora, com os itens vendidos e o valor da operação.
+- Registrar receitas e despesas necessárias para a operação.
+- Disponibilizar relatórios principalmente por semana e por mês, com visualização de receitas, despesas, vendas e estoque.
+
+Ainda não está definido se haverá caixa, formas de pagamento, fiado, descontos, perdas, lotes, validade, fornecedores, emissão fiscal ou integração com maquininha/PIX.
+
+#### Suítes
+
+- Gerenciar reservas para **10 suítes**.
+- Considerar inicialmente que todas as suítes possuem o mesmo padrão.
+- Registrar os dados principais do hóspede: nome, CPF e contato.
+- Permitir observações da reserva ou da hospedagem, inclusive itens relevantes que ficarão fora da suíte, como um carro.
+- Disponibilizar pagamento online associado à reserva.
+- Exibir disponibilidade, período, situação da reserva e situação do pagamento.
+
+O pagamento online exige definir provedor, meios aceitos, política de cancelamento/estorno, confirmação por webhook e comportamento quando o barco estiver sem internet. Uma reserva iniciada offline não pode ser apresentada como pagamento online confirmado sem confirmação do provedor.
+
+#### Encomendas
+
+- Controlar a entrada, a permanência e a saída física das encomendas.
+- Registrar município de envio e município de destino.
+- Registrar nome e documento do remetente e do destinatário, aceitando CPF ou RG conforme a regra do cliente.
+- Registrar o status do pagamento, incluindo casos em que o pagamento ocorre somente no local de destino.
+- Registrar o valor atribuído à encomenda.
+- Registrar desconto, com espaço para observação ou justificativa.
+- Gerar uma numeração própria para cada encomenda.
+- Registrar o local físico em que a encomenda está guardada, inicialmente com opções como Sala de Encomendas 1, Sala de Encomendas 2, Escritório, Porão X, Freezer e Frigorífico.
+- Permitir consulta do histórico de localização e dos estados da encomenda.
+
+O termo “estoque” das encomendas será tratado provisoriamente como **controle de custódia e localização física de volumes**, separado do estoque de produtos da lanchonete. A lista de locais deve ser cadastrável, não codificada permanentemente, pois o cliente pode criar, renomear ou desativar locais.
+
+#### Relatórios transversais
+
+- Todos os módulos devem oferecer uma visão superior dos dados.
+- Os relatórios devem permitir, no mínimo, filtro por período e visualização resumida por módulo.
+- A primeira hipótese é oferecer indicadores, tabelas detalhadas e totais; exportação para PDF/CSV permanece pendente de confirmação.
+- Os relatórios devem deixar claro o que está confirmado, pendente de sincronização, cancelado, estornado ou ainda em conflito.
+
+### 1.2. Impacto dos novos requisitos no produto
+
+O MVP atualmente publicado na Vercel continua sendo apenas uma demonstração com dados fictícios. Ele **ainda não implementa** pagamento online, vendas reais, receitas e despesas, documentos CPF/RG, custódia detalhada de encomendas ou relatórios financeiros completos. Esses itens devem entrar no backlog após a validação dos fluxos com o cliente.
+
+O novo escopo também amplia o domínio para quatro preocupações que precisam permanecer separadas:
+
+1. estoque e vendas da lanchonete;
+2. reservas, hóspedes e pagamentos das suítes;
+3. custódia, cobrança e entrega das encomendas;
+4. relatórios e indicadores consolidados.
+
+CPF, RG e dados de contato são dados pessoais. O produto deverá coletar somente o necessário, restringir acesso, registrar auditoria e definir retenção conforme a finalidade operacional e a LGPD. Dados completos de cartão não devem ser armazenados pelo sistema.
 
 ## 2. Hipóteses que ainda não são requisitos
 
@@ -24,7 +82,7 @@ O problema transversal é a conectividade: o barco pode passar períodos sem sin
 - O fluxo mais crítico é cadastrar uma encomenda rapidamente e imprimir uma etiqueta legível.
 - Pode haver mais de um usuário e mais de um dispositivo, mas isso ainda não foi confirmado.
 - O barco pode ter uma rede Wi-Fi local mesmo quando não tem internet; isso precisa ser testado.
-- O mercado e as suítes podem compartilhar pessoas, usuários, pagamentos, relatórios e cadastro de localidades.
+- A lanchonete e as suítes podem compartilhar pessoas, usuários, pagamentos, relatórios e cadastro de localidades.
 - A impressão poderá ocorrer em uma impressora comum ou térmica, mas marca, modelo, conexão e tamanho da etiqueta são desconhecidos.
 - Não se deve presumir, antes da entrevista, requisitos fiscais, emissão de documento fiscal, integração bancária, cartão, PIX, marketplace ou integração com empresas de transporte.
 
@@ -74,7 +132,7 @@ Essa primeira entrega deve ser chamada de **protótipo funcional navegável** ou
 - fluxo de recebimento de encomenda;
 - lista, detalhe e alteração de status;
 - pré-visualização de etiqueta;
-- telas iniciais do mercadinho;
+- telas iniciais da lanchonete;
 - consulta de suítes e criação simulada de reserva;
 - dados fictícios e controlados;
 - modo demonstração claramente identificado;
@@ -171,29 +229,40 @@ Não se deve copiar o arquivo SQLite de um dispositivo para outro nem tratá-lo 
 
 - Encomenda.
 - Remetente e destinatário.
+- Documento do remetente e do destinatário, com tipo CPF/RG.
 - Endereço ou referência de entrega.
 - Volume, peso, dimensões e observações.
 - Rota e destino.
-- Cobrança e situação do pagamento, se aplicável.
+- Valor, desconto, observação do desconto e situação do pagamento.
+- Local físico atual e histórico de custódia.
 - Etiqueta e histórico de impressão.
 - Histórico de movimentação: recebida, etiquetada, embarcada, em trânsito, entregue, devolvida, cancelada ou outra situação definida pelo cliente.
 
-### Mercadinho
+### Lanchonete
 
 - Produto, categoria, unidade de medida e código.
 - Preço vigente e histórico de preços.
 - Estoque por local.
 - Movimento de estoque.
 - Venda, itens, descontos e forma de pagamento, se aplicável.
+- Receita, despesa, categoria financeira e período de competência.
 - Perdas, validade e inventário, caso façam parte da operação real.
 
 ### Suítes
 
-- Suíte, capacidade, categoria e situação.
-- Hóspede ou responsável pela reserva.
-- Reserva, período, quantidade de ocupantes e situação.
+- Suíte, capacidade, categoria e situação — inicialmente 10 unidades do mesmo padrão.
+- Hóspede ou responsável pela reserva, CPF e contato.
+- Reserva, período, quantidade de ocupantes, observações e situação.
+- Cobrança, pagamento online, confirmação, estorno e cancelamento.
 - Check-in, check-out, limpeza e manutenção, se aplicável.
-- Valor, pagamento e observações, se aplicável.
+
+### Relatórios
+
+- Indicadores consolidados por módulo.
+- Receitas, despesas e vendas da lanchonete por semana e mês.
+- Encomendas por período, município, status de pagamento, status operacional e local físico.
+- Reservas por período, ocupação, situação de pagamento e cancelamentos.
+- Filtros, totais e detalhamento auditável; exportações ficam pendentes de confirmação.
 
 Esses nomes são um ponto de partida para conversar com o cliente, não um modelo de banco aprovado.
 
@@ -260,19 +329,25 @@ O sistema deve permitir reimprimir uma etiqueta pelo identificador da encomenda 
 
 **Critério de aceite:** o fluxo real do barco pode ser executado do recebimento à entrega, inclusive com sinal intermitente.
 
-### Fase 4 — mercadinho
+### Fase 4 — lanchonete
 
-**Entregáveis:** produtos, preços, movimentos, vendas, inventário, perdas e relatórios definidos na descoberta.
+**Entregáveis:** produtos, preços, movimentos de entrada/saída, vendas na hora, receitas, despesas, inventário, perdas e relatórios semanais/mensais definidos na descoberta.
 
-**Critério de aceite:** o saldo pode ser explicado por movimentos auditáveis e permanece correto após sincronização.
+**Critério de aceite:** o saldo pode ser explicado por movimentos auditáveis, as vendas fecham com as receitas registradas e os relatórios permanecem corretos após sincronização.
 
 ### Fase 5 — suítes
 
-**Entregáveis:** cadastro, calendário, disponibilidade, reserva, check-in/check-out e conflitos.
+**Entregáveis:** cadastro das 10 suítes, calendário, disponibilidade, dados dos hóspedes, observações, reserva, pagamento online, check-in/check-out e conflitos.
 
-**Critério de aceite:** o sistema não confirma duas reservas para a mesma suíte no mesmo período sem gerar uma ocorrência explícita.
+**Critério de aceite:** o sistema não confirma duas reservas para a mesma suíte no mesmo período sem gerar uma ocorrência explícita; o estado da reserva só é pago após confirmação do provedor.
 
-### Fase 6 — piloto e endurecimento
+### Fase 6 — relatórios e visão gerencial
+
+**Entregáveis:** dashboard consolidado, filtros por período, relatórios semanais/mensais da lanchonete, relatórios de encomendas e reservas, totais auditáveis e exportação se aprovada.
+
+**Critério de aceite:** o cliente consegue responder, sem consultar cadernos, quanto vendeu, quais foram as receitas e despesas, quais encomendas estão pendentes e como está a ocupação das suítes em um período escolhido.
+
+### Fase 7 — piloto e endurecimento
 
 **Entregáveis:** instalação no ambiente real, treinamento, manual curto, plano de suporte, monitoramento, testes de restauração e procedimento de contingência em papel.
 
@@ -296,31 +371,34 @@ O sistema deve permitir reimprimir uma etiqueta pelo identificador da encomenda 
 9. Há encomendas frágeis, perecíveis, restritas ou que exigem tratamento especial?
 10. A entrega é confirmada por assinatura, foto, código ou apenas por atualização manual?
 
-### Mercadinho
+### Lanchonete
 
-11. É apenas estoque ou também venda/caixa?
-12. Quantos produtos existem e com que frequência mudam os preços?
-13. O estoque é único ou separado por local/câmara/prateleira?
-14. Existem lotes, validade, perdas, consignação ou inventário periódico?
-15. Há obrigação fiscal ou integração com algum sistema já existente?
+11. Como funciona uma venda na hora: balcão, comanda, caixa, fiado ou outra forma?
+12. Quais formas de pagamento serão aceitas e o que significa “despesa” na operação?
+13. Quantos produtos existem e com que frequência mudam os preços?
+14. O estoque é único ou separado por local/câmara/prateleira?
+15. Existem lotes, validade, perdas, consignação ou inventário periódico?
+16. Há obrigação fiscal ou integração com algum sistema já existente?
 
 ### Suítes
 
-16. Quantas suítes existem e quais categorias/capacidades elas têm?
-17. Quem pode criar, alterar e cancelar reservas?
-18. A disponibilidade precisa funcionar e ser confirmada offline?
-19. Como são controlados check-in, check-out, limpeza e manutenção?
-20. Há pagamento, caução, nota, documento do hóspede ou integração externa?
+17. Quantas suítes existem e quais categorias/capacidades elas têm?
+18. Quem pode criar, alterar e cancelar reservas?
+19. A disponibilidade precisa funcionar e ser confirmada offline?
+20. Qual provedor e quais meios serão usados no pagamento online?
+21. Como funcionam cancelamento, estorno, vencimento e pagamento pendente?
+22. Como são controlados check-in, check-out, limpeza e manutenção?
+23. Há caução, nota, documento do hóspede ou integração externa?
 
 ### Tecnologia e implantação
 
-21. Quais dispositivos já existem: notebook, computador, tablet, celular, leitor ou impressora?
-22. Qual é a marca/modelo e a conexão da impressora?
-23. Mais de um dispositivo precisará alterar os mesmos registros ao mesmo tempo?
-24. Há uma rede Wi-Fi interna no barco mesmo sem internet?
-25. Quem fará o suporte e a troca de equipamento em caso de falha?
-26. O cliente precisa acessar relatórios de terra, fora do barco?
-27. Qual é o orçamento para hospedagem, domínio, impressoras, servidor local e manutenção?
+24. Quais dispositivos já existem: notebook, computador, tablet, celular, leitor ou impressora?
+25. Qual é a marca/modelo e a conexão da impressora?
+26. Mais de um dispositivo precisará alterar os mesmos registros ao mesmo tempo?
+27. Há uma rede Wi-Fi interna no barco mesmo sem internet?
+28. Quem fará o suporte e a troca de equipamento em caso de falha?
+29. O cliente precisa acessar relatórios de terra, fora do barco?
+30. Qual é o orçamento para hospedagem, domínio, impressoras, servidor local e manutenção?
 
 ## 12. Decisões pendentes
 
