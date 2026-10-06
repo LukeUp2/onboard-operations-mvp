@@ -50,6 +50,7 @@ import {
   Booking,
   BookingPaymentStatus,
   FinancialEntry,
+  initialStockMovements,
   initialBookings,
   initialFinancialEntries,
   initialOrders,
@@ -61,15 +62,18 @@ import {
   OrderCategory,
   OrderPaymentStatus,
   OrderStatus,
+  PendingOperation,
   Product,
   ReportPeriod,
   Sale,
   SalePaymentMethod,
+  StockMovement,
+  StockMovementType,
   Suite,
   StorageLocation,
 } from "@/lib/demo-data";
 
-const STORAGE_KEY = "barco-jose-mvp-state-v2";
+const STORAGE_KEY = "barco-jose-mvp-state-v3";
 
 const moduleMeta: Record<ModuleKey, { label: string; eyebrow: string; title: string; description: string }> = {
   overview: {
@@ -111,9 +115,10 @@ const bookingPaymentStatuses: BookingPaymentStatus[] = ["Pago (simulado)", "Pend
 
 function statusClass(status: OrderStatus | Suite["status"] | OrderPaymentStatus | BookingPaymentStatus) {
   const normalized = status.toLowerCase();
+  if (normalized.includes("pendente") || normalized.includes("no destino") || normalized.includes("devolvida") || normalized.includes("limpeza")) return "status-warning";
+  if (normalized.includes("simulado")) return "status-info";
   if (normalized.includes("entregue") || normalized.includes("livre") || normalized.includes("pago") || normalized.includes("confirmada")) return "status-positive";
   if (normalized.includes("trânsito") || normalized.includes("reservada") || normalized.includes("ocupada") || normalized.includes("embarcada")) return "status-info";
-  if (normalized.includes("devolvida") || normalized.includes("limpeza")) return "status-warning";
   return "status-neutral";
 }
 
@@ -132,17 +137,68 @@ function nextOrderStatus(status: OrderStatus): OrderStatus {
   return status;
 }
 
+type StoredDemoState = {
+  orders: Order[];
+  products: Product[];
+  sales: Sale[];
+  financialEntries: FinancialEntry[];
+  stockMovements: StockMovement[];
+  suites: Suite[];
+  bookings: Booking[];
+  pendingOperations: PendingOperation[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isRecordArray(value: unknown): value is Record<string, unknown>[] {
+  return Array.isArray(value) && value.every(isRecord);
+}
+
+function parseStoredState(value: string): StoredDemoState | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!isRecord(parsed)) return null;
+    const orders = parsed.orders;
+    const products = parsed.products;
+    const sales = parsed.sales;
+    const financialEntries = parsed.financialEntries;
+    const stockMovements = parsed.stockMovements;
+    const suites = parsed.suites;
+    const bookings = parsed.bookings;
+    const pendingOperations = parsed.pendingOperations;
+    if (!isRecordArray(orders) || !isRecordArray(products) || !isRecordArray(sales) || !isRecordArray(financialEntries) || !isRecordArray(stockMovements) || !isRecordArray(suites) || !isRecordArray(bookings) || !isRecordArray(pendingOperations)) return null;
+    if (!orders.every((item) => typeof item.code === "string" && Array.isArray(item.storageHistory))) return null;
+    if (!products.every((item) => typeof item.id === "string" && typeof item.name === "string" && typeof item.stock === "number")) return null;
+    if (!suites.every((item) => typeof item.id === "string" && typeof item.number === "string")) return null;
+    return { orders, products, sales, financialEntries, stockMovements, suites, bookings, pendingOperations } as unknown as StoredDemoState;
+  } catch {
+    return null;
+  }
+}
+
+function getNextSequence(items: Array<{ code: string }>, fallback: number) {
+  return items.reduce((highest, item) => {
+    const number = Number(item.code.replace(/\D/g, ""));
+    return Number.isFinite(number) ? Math.max(highest, number) : highest;
+  }, fallback) + 1;
+}
+
 export function BarcoDashboard() {
   const [activeModule, setActiveModule] = useState<ModuleKey>("overview");
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [sales, setSales] = useState<Sale[]>(initialSales);
   const [financialEntries, setFinancialEntries] = useState<FinancialEntry[]>(initialFinancialEntries);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>(initialStockMovements);
   const [suites, setSuites] = useState<Suite[]>(initialSuites);
   const [bookings, setBookings] = useState<Booking[]>(initialBookings);
+  const [pendingOperations, setPendingOperations] = useState<PendingOperation[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [isOfflineDemo, setIsOfflineDemo] = useState(false);
+  const [isBrowserOnline, setIsBrowserOnline] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState("Agora");
@@ -156,14 +212,16 @@ export function BarcoDashboard() {
     const hydration = window.setTimeout(() => {
       try {
         const stored = window.localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as { orders?: Order[]; products?: Product[]; sales?: Sale[]; financialEntries?: FinancialEntry[]; suites?: Suite[]; bookings?: Booking[] };
-          if (parsed.orders) setOrders(parsed.orders);
-          if (parsed.products) setProducts(parsed.products);
-          if (parsed.sales) setSales(parsed.sales);
-          if (parsed.financialEntries) setFinancialEntries(parsed.financialEntries);
-          if (parsed.suites) setSuites(parsed.suites);
-          if (parsed.bookings) setBookings(parsed.bookings);
+        const parsed = stored ? parseStoredState(stored) : null;
+        if (parsed) {
+          setOrders(parsed.orders);
+          setProducts(parsed.products);
+          setSales(parsed.sales);
+          setFinancialEntries(parsed.financialEntries);
+          setStockMovements(parsed.stockMovements);
+          setSuites(parsed.suites);
+          setBookings(parsed.bookings);
+          setPendingOperations(parsed.pendingOperations);
         }
       } catch {
         // The MVP remains usable with the seed data if browser storage is unavailable.
@@ -176,14 +234,29 @@ export function BarcoDashboard() {
 
   useEffect(() => {
     if (!isHydrated) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ orders, products, sales, financialEntries, suites, bookings }));
-  }, [bookings, financialEntries, isHydrated, orders, products, sales, suites]);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ orders, products, sales, financialEntries, stockMovements, suites, bookings, pendingOperations }));
+    } catch {
+      console.warn("Não foi possível persistir a demonstração neste navegador.");
+    }
+  }, [bookings, financialEntries, isHydrated, orders, pendingOperations, products, sales, stockMovements, suites]);
 
   useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(() => setToast(null), 3500);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    const updateConnection = () => setIsBrowserOnline(navigator.onLine);
+    updateConnection();
+    window.addEventListener("online", updateConnection);
+    window.addEventListener("offline", updateConnection);
+    return () => {
+      window.removeEventListener("online", updateConnection);
+      window.removeEventListener("offline", updateConnection);
+    };
+  }, []);
 
   const metrics = useMemo(() => ({
     ordersPending: orders.filter((order) => order.status === "Aguardando embarque").length,
@@ -197,6 +270,7 @@ export function BarcoDashboard() {
   }), [financialEntries, orders, products, sales, suites]);
 
   const currentMeta = moduleMeta[activeModule];
+  const isOffline = isOfflineDemo || !isBrowserOnline;
 
   function goTo(module: ModuleKey) {
     setActiveModule(module);
@@ -207,14 +281,17 @@ export function BarcoDashboard() {
     setToast(message);
   }
 
-  function markPending(message: string) {
+  function markPending(message: string, module: ModuleKey = activeModule, action = "Alteração local") {
+    setPendingOperations((current) => [...current, { id: "pending-" + Date.now() + "-" + current.length, module, action, createdAt: "Agora" }]);
     setLastSync("Pendente");
     showToast(message);
   }
 
   function syncDemo() {
+    const pendingCount = pendingOperations.length;
+    setPendingOperations([]);
     setLastSync("Agora");
-    showToast("Demonstração sincronizada. Nenhum dado real foi enviado.");
+    showToast(pendingCount ? (pendingCount === 1 ? "1 alteração conciliada na demonstração." : pendingCount + " alterações conciliadas na demonstração.") : "Nenhuma alteração pendente na demonstração.");
   }
 
   function handleOrderCreated(order: Order) {
@@ -222,33 +299,43 @@ export function BarcoDashboard() {
     setSelectedOrder(order);
     setActiveModule("orders");
     setOrderDialogOpen(false);
-    markPending(`Encomenda ${order.code} salva localmente.`);
+    markPending("Encomenda " + order.code + " salva localmente.", "orders", "Criar encomenda");
   }
 
   function handleOrderStatusChange() {
     if (!selectedOrder) return;
-    const updated = { ...selectedOrder, status: nextOrderStatus(selectedOrder.status) };
+    const nextStatus = nextOrderStatus(selectedOrder.status);
+    const updated = { ...selectedOrder, status: nextStatus, storageUpdatedAt: "Agora", storageHistory: [...selectedOrder.storageHistory, { id: "cust-" + Date.now(), location: selectedOrder.storageLocation, status: nextStatus, at: "Agora", note: "Status alterado para " + nextStatus + "." }] };
     setOrders((current) => current.map((order) => order.id === updated.id ? updated : order));
     setSelectedOrder(updated);
-    markPending(`Status atualizado para “${updated.status}”.`);
+    markPending("Status atualizado para “" + updated.status + "”.", "orders", "Avançar status");
   }
 
   function handlePrint(order: Order) {
     const updated = { ...order, printed: true };
     setOrders((current) => current.map((item) => item.id === order.id ? updated : item));
     setSelectedOrder(updated);
-    showToast("Etiqueta preparada para impressão.");
+    markPending("Etiqueta preparada para impressão.", "orders", "Imprimir etiqueta");
     window.setTimeout(() => window.print(), 80);
   }
 
   function handleStockMovement(productId: string, type: "entry" | "exit", quantity: number) {
-    setProducts((current) => current.map((product) => {
-      if (product.id !== productId) return product;
-      const nextStock = type === "entry" ? product.stock + quantity : Math.max(0, product.stock - quantity);
-      return { ...product, stock: nextStock, updatedAt: "Agora" };
+    const product = products.find((item) => item.id === productId);
+    const safeQuantity = Math.max(1, Math.floor(quantity) || 1);
+    if (!product) return;
+    if (type === "exit" && safeQuantity > product.stock) {
+      showToast("A saída não pode ser maior que o saldo disponível.");
+      return;
+    }
+    setProducts((current) => current.map((item) => {
+      if (item.id !== productId) return item;
+      const nextStock = type === "entry" ? item.stock + safeQuantity : Math.max(0, item.stock - safeQuantity);
+      return { ...item, stock: nextStock, updatedAt: "Agora" };
     }));
+    const movementType: StockMovementType = type === "entry" ? "Entrada" : "Saída";
+    setStockMovements((current) => [{ id: "stock-" + Date.now(), productId, productName: product.name, type: movementType, quantity: safeQuantity, date: "Agora", reason: type === "entry" ? "Entrada manual" : "Saída manual" }, ...current]);
     setStockDialogOpen(false);
-    markPending(type === "entry" ? "Entrada registrada localmente." : "Saída registrada localmente.");
+    markPending(type === "entry" ? "Entrada registrada localmente." : "Saída registrada localmente.", "stock", movementType);
   }
 
   function handleSaleCreated(sale: Sale) {
@@ -257,18 +344,24 @@ export function BarcoDashboard() {
       const item = sale.items.find((saleItem) => saleItem.productId === product.id);
       return item ? { ...product, stock: Math.max(0, product.stock - item.quantity), updatedAt: "Agora" } : product;
     }));
-    setFinancialEntries((current) => [{ id: `fin-${Date.now()}`, type: "Receita", description: `Venda ${sale.code}`, amount: sale.total, category: "Venda", source: "Venda", date: sale.soldAt, period: sale.period }, ...current]);
+    setStockMovements((current) => [...sale.items.map((item) => ({ id: "stock-" + Date.now() + "-" + item.productId, productId: item.productId, productName: item.productName, type: "Venda" as const, quantity: item.quantity, date: sale.soldAt, reason: "Venda " + sale.code })), ...current]);
+    setFinancialEntries((current) => [{ id: "fin-" + Date.now(), type: "Receita", description: "Venda " + sale.code, amount: sale.total, category: "Venda", source: "Venda", date: sale.soldAt, period: sale.period }, ...current]);
     setSaleDialogOpen(false);
-    markPending(`Venda ${sale.code} registrada localmente.`);
+    markPending("Venda " + sale.code + " registrada localmente.", "stock", "Registrar venda");
   }
 
   function handleExpenseCreated(entry: FinancialEntry) {
     setFinancialEntries((current) => [entry, ...current]);
     setExpenseDialogOpen(false);
-    markPending("Despesa lançada localmente.");
+    markPending("Despesa lançada localmente.", "stock", "Lançar despesa");
   }
 
   function handleBookingCreated(booking: Booking) {
+    const suite = suites.find((item) => item.id === booking.suiteId);
+    if (!suite || suite.status !== "Livre") {
+      showToast("Esta suíte não está mais disponível para reserva.");
+      return;
+    }
     setBookings((current) => [booking, ...current]);
     setSuites((current) => current.map((suite) => suite.id === booking.suiteId ? {
       ...suite,
@@ -277,7 +370,7 @@ export function BarcoDashboard() {
       checkout: booking.checkOut,
     } : suite));
     setBookingDialogOpen(false);
-    markPending(`Reserva de ${booking.guest} salva localmente.`);
+    markPending("Reserva de " + booking.guest + " salva localmente.", "suites", "Criar reserva");
   }
 
   return (
@@ -325,9 +418,9 @@ export function BarcoDashboard() {
           <button className="mobile-menu-button" type="button" aria-label="Abrir menu" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button>
           <div className="breadcrumb"><span>Barco José</span><span className="breadcrumb-separator">/</span><strong>{currentMeta.label}</strong></div>
           <div className="topbar-actions">
-            <button className={`network-pill ${isOfflineDemo ? "network-pill-offline" : ""}`} type="button" onClick={() => setIsOfflineDemo((value) => !value)}>
-              {isOfflineDemo ? <CloudOff size={16} /> : <CloudUpload size={16} />}
-              <span>{isOfflineDemo ? "Modo offline" : "Online"}</span>
+            <button className={`network-pill ${isOffline ? "network-pill-offline" : ""}`} type="button" onClick={() => setIsOfflineDemo((value) => !value)} title={isBrowserOnline ? "Alternar simulação offline" : "O navegador informa que está sem conexão"}>
+              {isOffline ? <CloudOff size={16} /> : <CloudUpload size={16} />}
+              <span>{isOffline ? "Modo offline" : "Online"}</span>
               <span className="network-dot" />
             </button>
             <button className="icon-button notification-button" type="button" aria-label="Notificações" onClick={() => showToast("Você não tem novas notificações.")}><Bell size={19} /><span className="notification-dot" /></button>
@@ -352,7 +445,7 @@ export function BarcoDashboard() {
 
           {activeModule === "overview" && <Overview metrics={metrics} orders={orders} products={products} suites={suites} onNavigate={goTo} onSelectOrder={setSelectedOrder} />}
           {activeModule === "orders" && <OrdersModule orders={orders} selectedOrder={selectedOrder} onSelectOrder={setSelectedOrder} />}
-          {activeModule === "stock" && <StockModule products={products} sales={sales} financialEntries={financialEntries} onMovement={() => setStockDialogOpen(true)} onSale={() => setSaleDialogOpen(true)} onExpense={() => setExpenseDialogOpen(true)} />}
+          {activeModule === "stock" && <StockModule products={products} sales={sales} financialEntries={financialEntries} stockMovements={stockMovements} onMovement={() => setStockDialogOpen(true)} onSale={() => setSaleDialogOpen(true)} onExpense={() => setExpenseDialogOpen(true)} />}
           {activeModule === "suites" && <SuitesModule suites={suites} bookings={bookings} onBooking={() => setBookingDialogOpen(true)} />}
           {activeModule === "reports" && <ReportsModule orders={orders} products={products} sales={sales} financialEntries={financialEntries} suites={suites} bookings={bookings} />}
         </div>
@@ -363,9 +456,9 @@ export function BarcoDashboard() {
       </div>
 
       {selectedOrder && <OrderDrawer order={selectedOrder} onClose={() => setSelectedOrder(null)} onPrint={() => handlePrint(selectedOrder)} onAdvanceStatus={handleOrderStatusChange} />}
-      {orderDialogOpen && <OrderDialog onClose={() => setOrderDialogOpen(false)} onSubmit={handleOrderCreated} />}
+      {orderDialogOpen && <OrderDialog orders={orders} onClose={() => setOrderDialogOpen(false)} onSubmit={handleOrderCreated} />}
       {stockDialogOpen && <StockDialog products={products} onClose={() => setStockDialogOpen(false)} onSubmit={handleStockMovement} />}
-      {saleDialogOpen && <SaleDialog products={products} onClose={() => setSaleDialogOpen(false)} onSubmit={handleSaleCreated} />}
+      {saleDialogOpen && <SaleDialog products={products} sales={sales} onClose={() => setSaleDialogOpen(false)} onSubmit={handleSaleCreated} />}
       {expenseDialogOpen && <ExpenseDialog onClose={() => setExpenseDialogOpen(false)} onSubmit={handleExpenseCreated} />}
       {bookingDialogOpen && <BookingDialog suites={suites} onClose={() => setBookingDialogOpen(false)} onSubmit={handleBookingCreated} />}
       {toast && <div className="toast" role="status"><CircleCheck size={17} /> {toast}</div>}
@@ -424,7 +517,7 @@ function OrdersModule({ orders, selectedOrder, onSelectOrder }: { orders: Order[
   const [paymentStatus, setPaymentStatus] = useState<(typeof orderPaymentStatuses)[number]>("Todos");
   const cities = ["Todas", ...Array.from(new Set(orders.map((order) => order.city)))];
   const filtered = useMemo(() => orders.filter((order) => {
-    const search = `${order.code} ${order.recipient} ${order.sender} ${order.originCity} ${order.city} ${order.storageLocation}`.toLowerCase();
+    const search = `${order.code} ${order.recipient} ${order.recipientDocument} ${order.sender} ${order.senderDocument} ${order.originCity} ${order.city} ${order.contact} ${order.storageLocation} ${order.notes}`.toLowerCase();
     return (!query || search.includes(query.toLowerCase())) && (status === "Todas" || order.status === status) && (city === "Todas" || order.city === city) && (paymentStatus === "Todos" || order.paymentStatus === paymentStatus);
   }), [city, orders, paymentStatus, query, status]);
 
@@ -439,21 +532,21 @@ function StatusPill({ status }: { status: OrderStatus | Suite["status"] | OrderP
 }
 
 function OrderDrawer({ order, onClose, onPrint, onAdvanceStatus }: { order: Order; onClose: () => void; onPrint: () => void; onAdvanceStatus: () => void }) {
-  return <div className="drawer-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="order-drawer" role="dialog" aria-modal="true" aria-label={`Detalhes da encomenda ${order.code}`}><div className="drawer-header"><div><span className="eyebrow">Detalhe da encomenda</span><h2>{order.code}</h2></div><button className="icon-button" type="button" aria-label="Fechar detalhes" onClick={onClose}><X size={19} /></button></div><div className="drawer-status-row"><StatusPill status={order.status} /><StatusPill status={order.paymentStatus} /><span className="drawer-date"><Clock3 size={14} /> Recebida em {order.receivedAt}</span></div><div className="drawer-section"><div className="drawer-section-title"><UserRound size={17} /> Pessoas</div><DetailLine label="Destinatário" value={`${order.recipient} · ${order.recipientDocument}`} /><DetailLine label="Remetente" value={`${order.sender} · ${order.senderDocument}`} /><DetailLine label="Contato" value={order.contact} /></div><div className="drawer-section"><div className="drawer-section-title"><MapPin size={17} /> Rota e custódia</div><DetailLine label="Origem → destino" value={`${order.originCity} → ${order.city}`} /><DetailLine label="Local de entrega" value={order.destination} /><DetailLine label="Guardada em" value={order.storageLocation} /><DetailLine label="Atualizado" value={order.storageUpdatedAt} /></div><div className="drawer-section"><div className="drawer-section-title"><CircleDollarSign size={17} /> Cobrança</div><DetailLine label="Valor atribuído" value={formatCurrency(order.amount)} /><DetailLine label="Desconto" value={order.discount ? `${formatCurrency(order.discount)} · ${order.discountNote}` : "Nenhum desconto"} /><DetailLine label="Valor final" value={formatCurrency(order.amount - order.discount)} /></div><div className="drawer-section"><div className="drawer-section-title"><Package size={17} /> Volume</div><DetailLine label="Categoria" value={order.category} /><DetailLine label="Observações" value={order.notes} /></div><div className="label-preview print-card"><div className="label-preview-header"><span>ETIQUETA DE EMBARQUE</span><span className="label-code">{order.code}</span></div><div className="label-destination">{order.city}</div><strong>{order.recipient}</strong><span>{order.destination}</span><div className="label-barcode" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><small>Dados fictícios · Barco José</small></div><div className="drawer-actions"><button className="button button-secondary" type="button" onClick={onPrint}><Printer size={17} /> {order.printed ? "Reimprimir etiqueta" : "Imprimir etiqueta"}</button>{order.status !== "Entregue" && order.status !== "Devolvida" && <button className="button button-primary" type="button" onClick={onAdvanceStatus}><Check size={17} /> Avançar status</button>}</div></aside></div>;
+  return <div className="drawer-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><aside className="order-drawer" role="dialog" aria-modal="true" aria-label={`Detalhes da encomenda ${order.code}`}><div className="drawer-header"><div><span className="eyebrow">Detalhe da encomenda</span><h2>{order.code}</h2></div><button className="icon-button" type="button" aria-label="Fechar detalhes" onClick={onClose}><X size={19} /></button></div><div className="drawer-status-row"><StatusPill status={order.status} /><StatusPill status={order.paymentStatus} /><span className="drawer-date"><Clock3 size={14} /> Recebida em {order.receivedAt}</span></div><div className="drawer-section"><div className="drawer-section-title"><UserRound size={17} /> Pessoas</div><DetailLine label="Destinatário" value={`${order.recipient} · ${order.recipientDocument}`} /><DetailLine label="Remetente" value={`${order.sender} · ${order.senderDocument}`} /><DetailLine label="Contato" value={order.contact} /></div><div className="drawer-section"><div className="drawer-section-title"><MapPin size={17} /> Rota e custódia</div><DetailLine label="Origem → destino" value={`${order.originCity} → ${order.city}`} /><DetailLine label="Local de entrega" value={order.destination} /><DetailLine label="Guardada em" value={order.storageLocation} /><DetailLine label="Atualizado" value={order.storageUpdatedAt} /></div><div className="drawer-section"><div className="drawer-section-title"><MapPinned size={17} /> Histórico de custódia</div><div className="custody-history">{order.storageHistory.map((event) => <div className="custody-event" key={event.id}><div><strong>{event.status}</strong><span>{event.location} · {event.at}</span></div><small>{event.note}</small></div>)}</div></div><div className="drawer-section"><div className="drawer-section-title"><CircleDollarSign size={17} /> Cobrança</div><DetailLine label="Valor atribuído" value={formatCurrency(order.amount)} /><DetailLine label="Desconto" value={order.discount ? `${formatCurrency(order.discount)} · ${order.discountNote}` : "Nenhum desconto"} /><DetailLine label="Valor final" value={formatCurrency(order.amount - order.discount)} /></div><div className="drawer-section"><div className="drawer-section-title"><Package size={17} /> Volume</div><DetailLine label="Categoria" value={order.category} /><DetailLine label="Observações" value={order.notes} /></div><div className="label-preview print-card"><div className="label-preview-header"><span>ETIQUETA DE EMBARQUE</span><span className="label-code">{order.code}</span></div><div className="label-destination">{order.city}</div><strong>{order.recipient}</strong><span>{order.destination}</span><div className="label-barcode" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><small>Dados fictícios · Barco José</small></div><div className="drawer-actions"><button className="button button-secondary" type="button" onClick={onPrint}><Printer size={17} /> {order.printed ? "Reimprimir etiqueta" : "Imprimir etiqueta"}</button>{order.status !== "Entregue" && order.status !== "Devolvida" && <button className="button button-primary" type="button" onClick={onAdvanceStatus}><Check size={17} /> Avançar status</button>}</div></aside></div>;
 }
 
 function DetailLine({ label, value }: { label: string; value: string }) {
   return <div className="detail-line"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function StockModule({ products, sales, financialEntries, onMovement, onSale, onExpense }: { products: Product[]; sales: Sale[]; financialEntries: FinancialEntry[]; onMovement: () => void; onSale: () => void; onExpense: () => void }) {
+function StockModule({ products, sales, financialEntries, stockMovements, onMovement, onSale, onExpense }: { products: Product[]; sales: Sale[]; financialEntries: FinancialEntry[]; stockMovements: StockMovement[]; onMovement: () => void; onSale: () => void; onExpense: () => void }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("Todas");
   const categories = ["Todas", ...Array.from(new Set(products.map((product) => product.category)))];
   const filtered = products.filter((product) => `${product.name} ${product.category}`.toLowerCase().includes(query.toLowerCase()) && (category === "Todas" || product.category === category));
   const revenue = financialEntries.filter((entry) => entry.type === "Receita").reduce((total, entry) => total + entry.amount, 0);
   const expenses = financialEntries.filter((entry) => entry.type === "Despesa").reduce((total, entry) => total + entry.amount, 0);
-  return <div className="module-stack"><section className="module-summary stock-summary"><div className="summary-icon summary-icon-blue"><ShoppingBasket size={23} /></div><div><strong>{products.length} produtos cadastrados</strong><span>Controle entradas, saídas, vendas na hora, receitas e despesas demonstrativas.</span></div><div className="stock-summary-legend"><span><i className="legend-dot legend-good" /> {sales.length} vendas registradas</span><span><i className="legend-dot legend-low" /> {products.filter((product) => product.stock <= product.minimum).length} para repor</span></div></section><section className="finance-strip"><div><span>Receitas no período</span><strong>{formatCurrency(revenue)}</strong><small>vendas e outras entradas</small></div><div><span>Despesas no período</span><strong>{formatCurrency(expenses)}</strong><small>lançamentos registrados</small></div><div><span>Resultado demonstrativo</span><strong>{formatCurrency(revenue - expenses)}</strong><small>receitas menos despesas</small></div></section><section className="panel list-panel"><div className="filter-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar produto ou categoria" aria-label="Buscar produtos" /></div><div className="select-field"><Boxes size={16} /><select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></div><button className="button button-outline filter-button" type="button" onClick={onMovement}><ArrowDownToLine size={16} /> Registrar movimento</button><button className="button button-outline filter-button" type="button" onClick={onExpense}><ReceiptText size={16} /> Nova despesa</button><button className="button button-primary filter-button" type="button" onClick={onSale}><Banknote size={16} /> Registrar venda</button></div><div className="list-meta"><span><strong>{filtered.length}</strong> produtos exibidos</span><span className="list-meta-right"><Warehouse size={15} /> Estoque principal</span></div><div className="orders-table-wrap"><table className="data-table stock-table"><thead><tr><th>Produto</th><th>Categoria</th><th>Preço</th><th>Quantidade atual</th><th>Mínimo</th><th>Local</th><th>Atualizado</th><th><span className="sr-only">Ações</span></th></tr></thead><tbody>{filtered.map((product) => { const low = product.stock <= product.minimum; return <tr key={product.id}><td><div className="table-primary"><span className={`table-icon ${low ? "table-icon-warning" : ""}`}><ShoppingBasket size={15} /></span><div><strong>{product.name}</strong><span>{product.unit}</span></div></div></td><td><span className="category-label">{product.category}</span></td><td><strong>{formatCurrency(product.price)}</strong></td><td><div className="stock-quantity"><strong>{formatNumber(product.stock)}</strong><span className={low ? "stock-low" : "stock-ok"}>{low ? "Repor" : "Disponível"}</span></div></td><td><span className="table-secondary">{formatNumber(product.minimum)} {product.unit}s</span></td><td><span className="table-secondary">{product.location}</span></td><td><span className="table-secondary">{product.updatedAt}</span></td><td><button className="row-action" type="button" aria-label={`Registrar movimento de ${product.name}`} onClick={onMovement}><Pencil size={15} /></button></td></tr>; })}</tbody></table>{filtered.length === 0 && <EmptyState title="Nenhum produto encontrado" detail="Tente ajustar os filtros ou a busca." />}</div></section><div className="overview-grid"><section className="panel"><PanelHeader title="Vendas recentes" description="Registros de vendas na hora" actionLabel="Nova venda" onAction={onSale} /><div className="financial-list">{sales.slice(0, 4).map((sale) => <div className="financial-row" key={sale.id}><div className="financial-icon financial-icon-positive"><Banknote size={16} /></div><div><strong>{sale.code}</strong><span>{sale.items.map((item) => `${item.quantity}× ${item.productName}`).join(", ")} · {sale.paymentMethod}</span></div><b>{formatCurrency(sale.total)}</b></div>)}</div></section><section className="panel"><PanelHeader title="Entradas e saídas" description="Receitas e despesas lançadas" actionLabel="Nova despesa" onAction={onExpense} /><div className="financial-list">{financialEntries.slice(0, 4).map((entry) => <div className="financial-row" key={entry.id}><div className={`financial-icon ${entry.type === "Receita" ? "financial-icon-positive" : "financial-icon-negative"}`}>{entry.type === "Receita" ? <ArrowUpRight size={16} /> : <ArrowDownToLine size={16} />}</div><div><strong>{entry.description}</strong><span>{entry.category} · {entry.date}</span></div><b>{entry.type === "Receita" ? "+" : "-"}{formatCurrency(entry.amount)}</b></div>)}</div></section></div><section className="module-tip"><CircleHelp size={18} /><div><strong>Estoque baseado em movimentos</strong><span>Registre entradas e saídas em vez de alterar o saldo sem histórico. Essa base facilita a futura sincronização e auditoria.</span></div></section></div>;
+  return <div className="module-stack"><section className="module-summary stock-summary"><div className="summary-icon summary-icon-blue"><ShoppingBasket size={23} /></div><div><strong>{products.length} produtos cadastrados</strong><span>Controle entradas, saídas, vendas na hora, receitas e despesas demonstrativas.</span></div><div className="stock-summary-legend"><span><i className="legend-dot legend-good" /> {sales.length} vendas registradas</span><span><i className="legend-dot legend-low" /> {products.filter((product) => product.stock <= product.minimum).length} para repor</span></div></section><section className="finance-strip"><div><span>Receitas no período</span><strong>{formatCurrency(revenue)}</strong><small>vendas e outras entradas</small></div><div><span>Despesas no período</span><strong>{formatCurrency(expenses)}</strong><small>lançamentos registrados</small></div><div><span>Resultado demonstrativo</span><strong>{formatCurrency(revenue - expenses)}</strong><small>receitas menos despesas</small></div></section><section className="panel list-panel"><div className="filter-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar produto ou categoria" aria-label="Buscar produtos" /></div><div className="select-field"><Boxes size={16} /><select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></div><button className="button button-outline filter-button" type="button" onClick={onMovement}><ArrowDownToLine size={16} /> Registrar movimento</button><button className="button button-outline filter-button" type="button" onClick={onExpense}><ReceiptText size={16} /> Nova despesa</button><button className="button button-primary filter-button" type="button" onClick={onSale}><Banknote size={16} /> Registrar venda</button></div><div className="list-meta"><span><strong>{filtered.length}</strong> produtos exibidos</span><span className="list-meta-right"><Warehouse size={15} /> Estoque principal</span></div><div className="orders-table-wrap"><table className="data-table stock-table"><thead><tr><th>Produto</th><th>Categoria</th><th>Preço</th><th>Quantidade atual</th><th>Mínimo</th><th>Local</th><th>Atualizado</th><th><span className="sr-only">Ações</span></th></tr></thead><tbody>{filtered.map((product) => { const low = product.stock <= product.minimum; return <tr key={product.id}><td><div className="table-primary"><span className={`table-icon ${low ? "table-icon-warning" : ""}`}><ShoppingBasket size={15} /></span><div><strong>{product.name}</strong><span>{product.unit}</span></div></div></td><td><span className="category-label">{product.category}</span></td><td><strong>{formatCurrency(product.price)}</strong></td><td><div className="stock-quantity"><strong>{formatNumber(product.stock)}</strong><span className={low ? "stock-low" : "stock-ok"}>{low ? "Repor" : "Disponível"}</span></div></td><td><span className="table-secondary">{formatNumber(product.minimum)} {product.unit}s</span></td><td><span className="table-secondary">{product.location}</span></td><td><span className="table-secondary">{product.updatedAt}</span></td><td><button className="row-action" type="button" aria-label={`Registrar movimento de ${product.name}`} onClick={onMovement}><Pencil size={15} /></button></td></tr>; })}</tbody></table>{filtered.length === 0 && <EmptyState title="Nenhum produto encontrado" detail="Tente ajustar os filtros ou a busca." />}</div></section><div className="overview-grid"><section className="panel"><PanelHeader title="Vendas recentes" description="Registros de vendas na hora" actionLabel="Nova venda" onAction={onSale} /><div className="financial-list">{sales.slice(0, 4).map((sale) => <div className="financial-row" key={sale.id}><div className="financial-icon financial-icon-positive"><Banknote size={16} /></div><div><strong>{sale.code}</strong><span>{sale.items.map((item) => `${item.quantity}× ${item.productName}`).join(", ")} · {sale.paymentMethod}</span></div><b>{formatCurrency(sale.total)}</b></div>)}</div></section><section className="panel"><PanelHeader title="Entradas e saídas" description="Receitas e despesas lançadas" actionLabel="Nova despesa" onAction={onExpense} /><div className="financial-list">{financialEntries.slice(0, 4).map((entry) => <div className="financial-row" key={entry.id}><div className={`financial-icon ${entry.type === "Receita" ? "financial-icon-positive" : "financial-icon-negative"}`}>{entry.type === "Receita" ? <ArrowUpRight size={16} /> : <ArrowDownToLine size={16} />}</div><div><strong>{entry.description}</strong><span>{entry.category} · {entry.date}</span></div><b>{entry.type === "Receita" ? "+" : "-"}{formatCurrency(entry.amount)}</b></div>)}</div></section></div><section className="panel"><PanelHeader title="Histórico de estoque" description="Entradas, saídas e vendas que explicam o saldo" actionLabel="Registrar movimento" onAction={onMovement} /><div className="financial-list">{stockMovements.slice(0, 8).map((movement) => <div className="financial-row" key={movement.id}><div className="financial-icon financial-icon-positive"><Boxes size={16} /></div><div><strong>{movement.type} · {movement.quantity}</strong><span>{movement.productName} · {movement.date}</span></div><b>{movement.reason}</b></div>)}</div></section><section className="module-tip"><CircleHelp size={18} /><div><strong>Estoque baseado em movimentos</strong><span>Registre entradas e saídas em vez de alterar o saldo sem histórico. Essa base facilita a futura sincronização e auditoria.</span></div></section></div>;
 }
 
 function SuitesModule({ suites, bookings, onBooking }: { suites: Suite[]; bookings: Booking[]; onBooking: () => void }) {
@@ -472,7 +565,7 @@ function DialogShell({ title, eyebrow, onClose, children }: { title: string; eye
   return <div className="dialog-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="dialog-card" role="dialog" aria-modal="true"><div className="dialog-header"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div><button className="icon-button" type="button" aria-label="Fechar janela" onClick={onClose}><X size={19} /></button></div>{children}</section></div>;
 }
 
-function OrderDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (order: Order) => void }) {
+function OrderDialog({ orders, onClose, onSubmit }: { orders: Order[]; onClose: () => void; onSubmit: (order: Order) => void }) {
   const [recipient, setRecipient] = useState("");
   const [recipientDocument, setRecipientDocument] = useState("");
   const [sender, setSender] = useState("");
@@ -489,8 +582,10 @@ function OrderDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (or
   const [storageLocation, setStorageLocation] = useState<StorageLocation>("Sala de Encomendas 1");
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const sequence = 24092 + Math.floor(Math.random() * 7);
-    onSubmit({ id: `ord-${Date.now()}`, code: `EN-${sequence}`, recipient, recipientDocument: recipientDocument || "Não informado", sender, senderDocument: senderDocument || "Não informado", originCity, city, destination: `Porto de ${city}`, category, status: "Guardada", receivedAt: "Agora", contact: contact || "Não informado", notes: notes || "Sem observações.", printed: false, amount: Math.max(0, Number(amount) || 0), discount: Math.max(0, Number(discount) || 0), discountNote: discountNote || "Sem observação de desconto", paymentStatus, storageLocation, storageUpdatedAt: "Agora" });
+    const sequence = getNextSequence(orders, 24091);
+    const amountValue = Math.max(0, Number(amount) || 0);
+    const discountValue = Math.min(amountValue, Math.max(0, Number(discount) || 0));
+    onSubmit({ id: "ord-" + Date.now(), code: "EN-" + sequence, recipient, recipientDocument: recipientDocument || "Não informado", sender, senderDocument: senderDocument || "Não informado", originCity, city, destination: "Porto de " + city, category, status: "Guardada", receivedAt: "Agora", contact: contact || "Não informado", notes: notes || "Sem observações.", printed: false, amount: amountValue, discount: discountValue, discountNote: discountValue ? (discountNote || "Sem observação de desconto") : "", paymentStatus, storageLocation, storageUpdatedAt: "Agora", storageHistory: [{ id: "cust-" + Date.now(), location: storageLocation, status: "Guardada", at: "Agora", note: "Recebida e armazenada." }] });
   }
   return <DialogShell eyebrow="Recebimento de carga" title="Nova encomenda" onClose={onClose}><form className="dialog-form" onSubmit={submit}><div className="demo-notice"><Sparkles size={16} /><span>Este registro é fictício e será salvo apenas neste navegador.</span></div><div className="form-grid"><Field label="Destinatário" required><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Nome de quem receberá" /></Field><Field label="CPF ou RG do destinatário"><input value={recipientDocument} onChange={(event) => setRecipientDocument(event.target.value)} placeholder="Documento" /></Field><Field label="Remetente" required><input required value={sender} onChange={(event) => setSender(event.target.value)} placeholder="Nome de quem está enviando" /></Field><Field label="CPF ou RG do remetente"><input value={senderDocument} onChange={(event) => setSenderDocument(event.target.value)} placeholder="Documento" /></Field><Field label="Município de origem" required><input required value={originCity} onChange={(event) => setOriginCity(event.target.value)} placeholder="Ex.: Manaus" /></Field><Field label="Município de destino" required><input required value={city} onChange={(event) => setCity(event.target.value)} placeholder="Ex.: Manacapuru" /></Field><Field label="Categoria"><select value={category} onChange={(event) => setCategory(event.target.value as OrderCategory)}><option>Caixa</option><option>Documentos</option><option>Frágil</option><option>Perecível</option></select></Field><Field label="Local guardado"><select value={storageLocation} onChange={(event) => setStorageLocation(event.target.value as StorageLocation)}>{storageLocations.map((location) => <option key={location}>{location}</option>)}</select></Field><Field label="Contato"><input value={contact} onChange={(event) => setContact(event.target.value)} placeholder="Telefone ou referência" /></Field><Field label="Valor atribuído"><input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></Field><Field label="Desconto"><input type="number" min="0" step="0.01" value={discount} onChange={(event) => setDiscount(event.target.value)} /></Field><Field label="Status do pagamento"><select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as OrderPaymentStatus)}>{orderPaymentStatuses.filter((item) => item !== "Todos").map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Observação do desconto"><input value={discountNote} onChange={(event) => setDiscountNote(event.target.value)} placeholder="Ex.: cliente recorrente" /></Field><Field label="Observações gerais" wide><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Informações importantes para o transporte" rows={3} /></Field></div><div className="dialog-footer"><button className="button button-secondary" type="button" onClick={onClose}>Cancelar</button><button className="button button-primary" type="submit"><Check size={17} /> Salvar encomenda</button></div></form></DialogShell>;
 }
@@ -514,11 +609,13 @@ function BookingDialog({ suites, onClose, onSubmit }: { suites: Suite[]; onClose
   const [checkOut, setCheckOut] = useState("08 out");
   const [notes, setNotes] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<BookingPaymentStatus>("Pago (simulado)");
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); onSubmit({ id: `book-${Date.now()}`, suiteId, guest, guestDocument: guestDocument || "Não informado", guestContact: guestContact || "Não informado", guests: Math.max(1, Number(guests) || 1), checkIn, checkOut, notes: notes || "Sem observações.", paymentStatus, status: "Confirmada" }); }
-  return <DialogShell eyebrow="Hospedagem a bordo" title="Nova reserva" onClose={onClose}><form className="dialog-form" onSubmit={submit}><div className="demo-notice"><CreditCard size={16} /><span>O pagamento online é simulado neste MVP e não movimenta dinheiro real.</span></div>{available.length === 0 ? <EmptyState title="Nenhuma suíte livre" detail="Libere uma suíte antes de cadastrar uma reserva." /> : <><div className="form-grid"><Field label="Suíte" wide><select value={suiteId} onChange={(event) => setSuiteId(event.target.value)}>{available.map((suite) => <option key={suite.id} value={suite.id}>Suíte {suite.number} · {suite.category}</option>)}</select></Field><Field label="Hóspede responsável" required><input required value={guest} onChange={(event) => setGuest(event.target.value)} placeholder="Nome completo" /></Field><Field label="CPF" required><input required value={guestDocument} onChange={(event) => setGuestDocument(event.target.value)} placeholder="CPF do hóspede" /></Field><Field label="Contato" required><input required value={guestContact} onChange={(event) => setGuestContact(event.target.value)} placeholder="Telefone ou WhatsApp" /></Field><Field label="Quantidade de hóspedes"><input type="number" min="1" value={guests} onChange={(event) => setGuests(event.target.value)} /></Field><Field label="Entrada"><input required value={checkIn} onChange={(event) => setCheckIn(event.target.value)} /></Field><Field label="Saída"><input required value={checkOut} onChange={(event) => setCheckOut(event.target.value)} /></Field><Field label="Status do pagamento"><select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as BookingPaymentStatus)}>{bookingPaymentStatuses.map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Observações" wide><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Itens relevantes fora da suíte, como carro ou carga" rows={3} /></Field></div><div className="dialog-footer"><button className="button button-secondary" type="button" onClick={onClose}>Cancelar</button><button className="button button-primary" type="submit"><Check size={17} /> Confirmar reserva</button></div></>}</form></DialogShell>;
+  const selectedSuite = suites.find((suite) => suite.id === suiteId);
+  const parsedGuests = Math.max(1, Number(guests) || 1);
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!selectedSuite || parsedGuests > selectedSuite.capacity) return; onSubmit({ id: "book-" + Date.now(), suiteId, guest: guest.trim(), guestDocument: guestDocument.trim() || "Não informado", guestContact: guestContact.trim() || "Não informado", guests: parsedGuests, checkIn, checkOut, notes: notes.trim() || "Sem observações.", paymentStatus, status: "Confirmada" }); }
+  return <DialogShell eyebrow="Hospedagem a bordo" title="Nova reserva" onClose={onClose}><form className="dialog-form" onSubmit={submit}><div className="demo-notice"><CreditCard size={16} /><span>O pagamento online é simulado neste MVP e não movimenta dinheiro real.</span></div>{available.length === 0 ? <EmptyState title="Nenhuma suíte livre" detail="Libere uma suíte antes de cadastrar uma reserva." /> : <><div className="form-grid"><Field label="Suíte" wide><select value={suiteId} onChange={(event) => setSuiteId(event.target.value)}>{available.map((suite) => <option key={suite.id} value={suite.id}>Suíte {suite.number} · {suite.category}</option>)}</select></Field><Field label="Hóspede responsável" required><input required value={guest} onChange={(event) => setGuest(event.target.value)} placeholder="Nome completo" /></Field><Field label="CPF" required><input required value={guestDocument} onChange={(event) => setGuestDocument(event.target.value)} placeholder="CPF do hóspede" /></Field><Field label="Contato" required><input required value={guestContact} onChange={(event) => setGuestContact(event.target.value)} placeholder="Telefone ou WhatsApp" /></Field><Field label="Quantidade de hóspedes"><input type="number" min="1" max={selectedSuite?.capacity ?? 1} value={guests} onChange={(event) => setGuests(event.target.value)} /></Field><Field label="Entrada"><input required value={checkIn} onChange={(event) => setCheckIn(event.target.value)} /></Field><Field label="Saída"><input required value={checkOut} onChange={(event) => setCheckOut(event.target.value)} /></Field><Field label="Status do pagamento"><select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value as BookingPaymentStatus)}>{bookingPaymentStatuses.map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Observações" wide><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Itens relevantes fora da suíte, como carro ou carga" rows={3} /></Field></div>{selectedSuite && parsedGuests > selectedSuite.capacity && <p className="form-error">Esta suíte comporta no máximo {selectedSuite.capacity} hóspedes.</p>}<div className="dialog-footer"><button className="button button-secondary" type="button" onClick={onClose}>Cancelar</button><button className="button button-primary" type="submit" disabled={!selectedSuite || parsedGuests > selectedSuite.capacity || !guest.trim() || !guestDocument.trim() || !guestContact.trim()}><Check size={17} /> Confirmar reserva</button></div></>}</form></DialogShell>;
 }
 
-function SaleDialog({ products, onClose, onSubmit }: { products: Product[]; onClose: () => void; onSubmit: (sale: Sale) => void }) {
+function SaleDialog({ products, sales, onClose, onSubmit }: { products: Product[]; sales: Sale[]; onClose: () => void; onSubmit: (sale: Sale) => void }) {
   const [productId, setProductId] = useState(products[0]?.id ?? "");
   const [quantity, setQuantity] = useState("1");
   const [paymentMethod, setPaymentMethod] = useState<SalePaymentMethod>("PIX");
@@ -528,7 +625,7 @@ function SaleDialog({ products, onClose, onSubmit }: { products: Product[]; onCl
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!product || parsedQuantity > product.stock) return;
-    const code = `VD-${180 + Math.floor(Math.random() * 80)}`;
+    const code = "VD-" + getNextSequence(sales, 0);
     onSubmit({ id: `sale-${Date.now()}`, code, items: [{ productId: product.id, productName: product.name, quantity: parsedQuantity, unitPrice: product.price, total }], total, paymentMethod, soldAt: "Hoje, agora", period: "Semana" });
   }
   return <DialogShell eyebrow="Lanchonete de bordo" title="Registrar venda" onClose={onClose}><form className="dialog-form" onSubmit={submit}><div className="demo-notice"><Banknote size={16} /><span>Ao salvar, o produto é baixado do estoque e a receita entra nos relatórios.</span></div><div className="form-grid"><Field label="Produto" wide><select value={productId} onChange={(event) => setProductId(event.target.value)}>{products.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatCurrency(item.price)} · saldo {item.stock}</option>)}</select></Field><Field label="Quantidade"><input type="number" min="1" max={product?.stock ?? 1} value={quantity} onChange={(event) => setQuantity(event.target.value)} /></Field><Field label="Forma de pagamento"><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as SalePaymentMethod)}><option>PIX</option><option>Cartão</option><option>Dinheiro</option><option>Pendente</option></select></Field></div><div className="dialog-total"><span>Total da venda</span><strong>{formatCurrency(total)}</strong></div>{product && parsedQuantity > product.stock && <p className="form-error">A quantidade informada é maior que o saldo disponível.</p>}<div className="dialog-footer"><button className="button button-secondary" type="button" onClick={onClose}>Cancelar</button><button className="button button-primary" type="submit" disabled={!product || parsedQuantity > (product?.stock ?? 0)}><Check size={17} /> Salvar venda</button></div></form></DialogShell>;
@@ -541,9 +638,11 @@ function ExpenseDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
   const [period, setPeriod] = useState<ReportPeriod>("Semana");
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSubmit({ id: `fin-${Date.now()}`, type: "Despesa", description, amount: Math.max(0, Number(amount) || 0), category, source: "Lançamento manual", date: "Hoje, agora", period });
+    const parsedAmount = Number(amount);
+    if (!description.trim() || !Number.isFinite(parsedAmount) || parsedAmount <= 0) return;
+    onSubmit({ id: "fin-" + Date.now(), type: "Despesa", description: description.trim(), amount: parsedAmount, category, source: "Lançamento manual", date: "Hoje, agora", period });
   }
-  return <DialogShell eyebrow="Controle financeiro" title="Nova despesa" onClose={onClose}><form className="dialog-form" onSubmit={submit}><div className="demo-notice"><ReceiptText size={16} /><span>O lançamento é fictício e aparece nos relatórios da semana ou do mês.</span></div><div className="form-grid"><Field label="Descrição" required wide><input required value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Ex.: compra de bebidas" /></Field><Field label="Valor" required><input required type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></Field><Field label="Categoria"><select value={category} onChange={(event) => setCategory(event.target.value)}><option>Operacional</option><option>Reposição</option><option>Manutenção</option><option>Outros</option></select></Field><Field label="Período do relatório"><select value={period} onChange={(event) => setPeriod(event.target.value as ReportPeriod)}><option>Semana</option><option>Mês</option></select></Field></div><div className="dialog-footer"><button className="button button-secondary" type="button" onClick={onClose}>Cancelar</button><button className="button button-primary" type="submit"><Check size={17} /> Lançar despesa</button></div></form></DialogShell>;
+  return <DialogShell eyebrow="Controle financeiro" title="Nova despesa" onClose={onClose}><form className="dialog-form" onSubmit={submit}><div className="demo-notice"><ReceiptText size={16} /><span>O lançamento é fictício e aparece nos relatórios da semana ou do mês.</span></div><div className="form-grid"><Field label="Descrição" required wide><input required value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Ex.: compra de bebidas" /></Field><Field label="Valor" required><input required type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></Field><Field label="Categoria"><select value={category} onChange={(event) => setCategory(event.target.value)}><option>Operacional</option><option>Reposição</option><option>Manutenção</option><option>Outros</option></select></Field><Field label="Período do relatório"><select value={period} onChange={(event) => setPeriod(event.target.value as ReportPeriod)}><option>Semana</option><option>Mês</option></select></Field></div><div className="dialog-footer"><button className="button button-secondary" type="button" onClick={onClose}>Cancelar</button><button className="button button-primary" type="submit" disabled={!description.trim() || !(Number(amount) > 0)}><Check size={17} /> Lançar despesa</button></div></form></DialogShell>;
 }
 
 function ReportsModule({ orders, products, sales, financialEntries, suites, bookings }: { orders: Order[]; products: Product[]; sales: Sale[]; financialEntries: FinancialEntry[]; suites: Suite[]; bookings: Booking[] }) {

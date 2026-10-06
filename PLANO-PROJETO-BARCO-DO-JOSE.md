@@ -1,12 +1,12 @@
 # Projeto Barco do José — plano preliminar
 
-**Status:** MVP web de validação publicado — novos requisitos de alto nível recebidos em 5 de outubro de 2026; aguardando detalhamento e priorização antes da próxima implementação.
+**Status:** MVP web de validação implementado localmente com os novos requisitos de alto nível; auditoria funcional concluída, sem novo deploy nesta etapa.
 
 **Data da versão:** 5 de outubro de 2026.
 
 Este documento é um plano vivo. Ele registra o que foi entendido até agora, as hipóteses que precisam ser validadas e uma arquitetura candidata para orientar a próxima conversa com o cliente.
 
-**MVP atual:** [barco-jose-mvp.vercel.app](https://barco-jose-mvp.vercel.app). Ele usa dados fictícios, não possui login e persiste alterações apenas no navegador para demonstrar os fluxos. Não representa ainda o backend definitivo, a sincronização real ou a integração física com impressoras.
+**MVP atual:** [barco-jose-mvp.vercel.app](https://barco-jose-mvp.vercel.app). A versão pública anterior permanece como referência; a implementação mais recente está no repositório e foi validada localmente, sem deploy nesta etapa. Ela usa dados fictícios, não possui login e persiste alterações no navegador, com fila local demonstrativa, para validar os fluxos. Não representa ainda o backend definitivo, a sincronização real, o pagamento online ou a integração física com impressoras.
 
 ## 1. Entendimento atual
 
@@ -65,7 +65,7 @@ O termo “estoque” das encomendas será tratado provisoriamente como **contro
 
 ### 1.2. Impacto dos novos requisitos no produto
 
-O MVP atualmente publicado na Vercel continua sendo apenas uma demonstração com dados fictícios. Ele **ainda não implementa** pagamento online, vendas reais, receitas e despesas, documentos CPF/RG, custódia detalhada de encomendas ou relatórios financeiros completos. Esses itens devem entrar no backlog após a validação dos fluxos com o cliente.
+O MVP local agora demonstra os fluxos de vendas, receitas e despesas, documentos CPF/RG, custódia detalhada de encomendas, histórico de estoque, reservas com dados de hóspedes e relatórios semanais/mensais. Esses dados continuam fictícios e locais. Pagamento online real, backend C#, sincronização entre dispositivos, autenticação, auditoria persistente, integração física com impressora e regras fiscais permanecem fora desta validação.
 
 O novo escopo também amplia o domínio para quatro preocupações que precisam permanecer separadas:
 
@@ -303,6 +303,28 @@ O sistema deve permitir reimprimir uma etiqueta pelo identificador da encomenda 
 - Indicador visível de sincronização; o usuário nunca deve acreditar que um dado chegou à nuvem quando ainda está apenas no dispositivo.
 - Testes com desligamento abrupto, bateria baixa, impressora indisponível, banco cheio, relógio incorreto, sinal intermitente e duas operações simultâneas.
 
+## 9.1. Auditoria do MVP local — 5 de outubro de 2026
+
+### Entregas confirmadas
+
+- Encomendas: numeração sequencial local, documentos, origem/destino, cobrança, desconto limitado ao valor atribuído, pagamento pendente ou no destino, local físico e histórico de custódia.
+- Lanchonete: preços, entradas, saídas, vendas, receitas, despesas e histórico de movimentos que explica o saldo.
+- Suítes: 10 unidades, padrão único, hóspede, CPF, contato, observações, pagamento simulado e bloqueio de reserva acima da capacidade.
+- Relatórios: visão semanal/mensal, receitas, despesas, vendas, encomendas pendentes, ocupação e indicadores operacionais.
+- Demonstração offline: persistência local validada após recarregar, fila local de alterações e sinalização explícita de pendências; a conciliação ainda é simulada.
+- Proteções de protótipo: validação mínima do estado salvo, tratamento de falha de armazenamento, prevenção de venda acima do estoque e prevenção de desconto acima do valor.
+
+### Furos ainda abertos antes de produção
+
+- Não existe API C#, banco central, sincronização idempotente real, resolução de conflitos ou compartilhamento entre dispositivos.
+- O pagamento de suítes é somente simulado; não há provedor, webhook, estorno, cancelamento ou confirmação financeira.
+- A etiqueta usa a caixa de impressão do navegador; modelo, tamanho, conexão e linguagem da impressora ainda não foram descobertos.
+- Não há autenticação, perfis, autorização, criptografia local ou auditoria persistente. CPF, RG e contato só devem permanecer fictícios nesta fase.
+- Locais de custódia, categorias, usuários e regras financeiras ainda são listas de demonstração; precisam virar cadastros configuráveis.
+- O MVP não calcula fechamento fiscal, caixa, fiado, perdas, lotes, validade, inventário ou competência contábil sem confirmação do cliente.
+- Datas de reserva ainda são textos simplificados; produção exigirá datas/horários reais, fuso, sobreposição, cancelamento, check-in, check-out e manutenção.
+- Backup, restauração, retenção LGPD, monitoramento e plano de contingência ainda não foram implementados.
+
 ## 10. Plano de execução por fases
 
 ### Fase 0 — descoberta e especificação
@@ -312,6 +334,8 @@ O sistema deve permitir reimprimir uma etiqueta pelo identificador da encomenda 
 **Critério de aceite:** o cliente consegue revisar e confirmar como uma encomenda, uma venda e uma reserva acontecem hoje, incluindo exceções.
 
 ### Fase 1 — protótipo operacional de encomendas
+
+**Estado:** concluída como protótipo local de validação; impressão física e offline de produção permanecem pendentes.
 
 **Entregáveis:** cadastro de encomenda, validações, identificador, visualização da etiqueta, impressão e armazenamento local offline.
 
@@ -331,17 +355,23 @@ O sistema deve permitir reimprimir uma etiqueta pelo identificador da encomenda 
 
 ### Fase 4 — lanchonete
 
+**Estado:** fluxo demonstrativo implementado e testado; inventário completo, fiscalidade e sincronização real permanecem pendentes.
+
 **Entregáveis:** produtos, preços, movimentos de entrada/saída, vendas na hora, receitas, despesas, inventário, perdas e relatórios semanais/mensais definidos na descoberta.
 
 **Critério de aceite:** o saldo pode ser explicado por movimentos auditáveis, as vendas fecham com as receitas registradas e os relatórios permanecem corretos após sincronização.
 
 ### Fase 5 — suítes
 
+**Estado:** fluxo demonstrativo implementado e testado; pagamento online real, calendário robusto e conflitos multi-dispositivo permanecem pendentes.
+
 **Entregáveis:** cadastro das 10 suítes, calendário, disponibilidade, dados dos hóspedes, observações, reserva, pagamento online, check-in/check-out e conflitos.
 
 **Critério de aceite:** o sistema não confirma duas reservas para a mesma suíte no mesmo período sem gerar uma ocorrência explícita; o estado da reserva só é pago após confirmação do provedor.
 
 ### Fase 6 — relatórios e visão gerencial
+
+**Estado:** primeira visão semanal/mensal implementada e testada; exportação e totais auditáveis de produção permanecem pendentes.
 
 **Entregáveis:** dashboard consolidado, filtros por período, relatórios semanais/mensais da lanchonete, relatórios de encomendas e reservas, totais auditáveis e exportação se aprovada.
 

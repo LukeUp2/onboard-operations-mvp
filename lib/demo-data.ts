@@ -29,6 +29,15 @@ export type Order = {
   paymentStatus: OrderPaymentStatus;
   storageLocation: StorageLocation;
   storageUpdatedAt: string;
+  storageHistory: OrderCustodyEvent[];
+};
+
+export type OrderCustodyEvent = {
+  id: string;
+  location: StorageLocation;
+  status: OrderStatus;
+  at: string;
+  note: string;
 };
 
 export type Product = {
@@ -41,6 +50,18 @@ export type Product = {
   minimum: number;
   updatedAt: string;
   location: string;
+};
+
+export type StockMovementType = "Entrada" | "Saída" | "Venda" | "Ajuste";
+
+export type StockMovement = {
+  id: string;
+  productId: string;
+  productName: string;
+  type: StockMovementType;
+  quantity: number;
+  date: string;
+  reason: string;
 };
 
 export type SalePaymentMethod = "PIX" | "Cartão" | "Dinheiro" | "Pendente";
@@ -105,12 +126,19 @@ export type Booking = {
   status: "Confirmada" | "Pendente" | "Cancelada";
 };
 
+export type PendingOperation = {
+  id: string;
+  module: ModuleKey;
+  action: string;
+  createdAt: string;
+};
+
 export const initialOrders: Order[] = [
-  { id: "ord-001", code: "EN-24091", recipient: "Maria de Lourdes Silva", recipientDocument: "CPF 123.456.789-09", sender: "José Andrade", senderDocument: "RG 31.456.789-0", originCity: "Manaus", city: "Manacapuru", destination: "Porto de Manacapuru", category: "Caixa", status: "Guardada", receivedAt: "02 out · 09:42", contact: "(92) 99124-4801", notes: "Frágil — manter na parte superior da carga.", printed: true, amount: 85, discount: 5, discountNote: "Cliente recorrente", paymentStatus: "Pago no destino", storageLocation: "Sala de Encomendas 1", storageUpdatedAt: "Hoje, 09:45" },
-  { id: "ord-002", code: "EN-24090", recipient: "Mercadinho São Pedro", recipientDocument: "CNPJ 04.123.567/0001-10", sender: "Distribuidora Norte", senderDocument: "CNPJ 08.765.432/0001-20", originCity: "Manaus", city: "Novo Airão", destination: "Porto de Novo Airão", category: "Perecível", status: "Aguardando embarque", receivedAt: "02 out · 09:18", contact: "(92) 98214-7730", notes: "Conferir quantidade no desembarque.", printed: true, amount: 240, discount: 0, discountNote: "", paymentStatus: "Pago", storageLocation: "Freezer", storageUpdatedAt: "Hoje, 09:22" },
-  { id: "ord-003", code: "EN-24089", recipient: "Raimundo Nonato Costa", recipientDocument: "RG 22.345.678-1", sender: "Ana Paula Costa", senderDocument: "CPF 987.654.321-00", originCity: "Tefé", city: "Tefé", destination: "Porto de Tefé", category: "Documentos", status: "Em trânsito", receivedAt: "01 out · 16:06", contact: "(97) 99101-2034", notes: "Entregar somente ao destinatário.", printed: true, amount: 35, discount: 0, discountNote: "", paymentStatus: "Pago", storageLocation: "Escritório", storageUpdatedAt: "01 out, 16:10" },
-  { id: "ord-004", code: "EN-24088", recipient: "Clínica Vida Ribeirinha", recipientDocument: "CNPJ 11.222.333/0001-44", sender: "Laboratório Central", senderDocument: "CNPJ 55.666.777/0001-88", originCity: "Manaus", city: "Parintins", destination: "Porto de Parintins", category: "Frágil", status: "Entregue", receivedAt: "30 set · 11:27", contact: "(92) 99345-1880", notes: "Manter em local seco.", printed: true, amount: 120, discount: 20, discountNote: "Condição comercial", paymentStatus: "Pago", storageLocation: "Sala de Encomendas 2", storageUpdatedAt: "30 set, 11:30" },
-  { id: "ord-005", code: "EN-24087", recipient: "Dona Francisca Oliveira", recipientDocument: "CPF 111.222.333-44", sender: "João Oliveira", senderDocument: "RG 44.555.666-7", originCity: "Manaus", city: "Coari", destination: "Porto de Coari", category: "Caixa", status: "Devolvida", receivedAt: "29 set · 14:52", contact: "(97) 99200-7712", notes: "Destinatário ausente na tentativa de entrega.", printed: true, amount: 60, discount: 0, discountNote: "", paymentStatus: "Pendente", storageLocation: "Sala de Encomendas 1", storageUpdatedAt: "30 set, 08:00" },
+  { id: "ord-001", code: "EN-24091", recipient: "Maria de Lourdes Silva", recipientDocument: "CPF 123.456.789-09", sender: "José Andrade", senderDocument: "RG 31.456.789-0", originCity: "Manaus", city: "Manacapuru", destination: "Porto de Manacapuru", category: "Caixa", status: "Guardada", receivedAt: "02 out · 09:42", contact: "(92) 99124-4801", notes: "Frágil — manter na parte superior da carga.", printed: true, amount: 85, discount: 5, discountNote: "Cliente recorrente", paymentStatus: "Pago no destino", storageLocation: "Sala de Encomendas 1", storageUpdatedAt: "Hoje, 09:45", storageHistory: [{ id: "cust-001-1", location: "Sala de Encomendas 1", status: "Guardada", at: "02 out · 09:45", note: "Recebida e armazenada." }] },
+  { id: "ord-002", code: "EN-24090", recipient: "Mercadinho São Pedro", recipientDocument: "CNPJ 04.123.567/0001-10", sender: "Distribuidora Norte", senderDocument: "CNPJ 08.765.432/0001-20", originCity: "Manaus", city: "Novo Airão", destination: "Porto de Novo Airão", category: "Perecível", status: "Aguardando embarque", receivedAt: "02 out · 09:18", contact: "(92) 98214-7730", notes: "Conferir quantidade no desembarque.", printed: true, amount: 240, discount: 0, discountNote: "", paymentStatus: "Pago", storageLocation: "Freezer", storageUpdatedAt: "Hoje, 09:22", storageHistory: [{ id: "cust-002-1", location: "Freezer", status: "Aguardando embarque", at: "02 out · 09:22", note: "Aguardando embarque." }] },
+  { id: "ord-003", code: "EN-24089", recipient: "Raimundo Nonato Costa", recipientDocument: "RG 22.345.678-1", sender: "Ana Paula Costa", senderDocument: "CPF 987.654.321-00", originCity: "Tefé", city: "Tefé", destination: "Porto de Tefé", category: "Documentos", status: "Em trânsito", receivedAt: "01 out · 16:06", contact: "(97) 99101-2034", notes: "Entregar somente ao destinatário.", printed: true, amount: 35, discount: 0, discountNote: "", paymentStatus: "Pago", storageLocation: "Escritório", storageUpdatedAt: "01 out, 16:10", storageHistory: [{ id: "cust-003-1", location: "Escritório", status: "Em trânsito", at: "01 out · 16:10", note: "Entregue à operação de transporte." }] },
+  { id: "ord-004", code: "EN-24088", recipient: "Clínica Vida Ribeirinha", recipientDocument: "CNPJ 11.222.333/0001-44", sender: "Laboratório Central", senderDocument: "CNPJ 55.666.777/0001-88", originCity: "Manaus", city: "Parintins", destination: "Porto de Parintins", category: "Frágil", status: "Entregue", receivedAt: "30 set · 11:27", contact: "(92) 99345-1880", notes: "Manter em local seco.", printed: true, amount: 120, discount: 20, discountNote: "Condição comercial", paymentStatus: "Pago", storageLocation: "Sala de Encomendas 2", storageUpdatedAt: "30 set, 11:30", storageHistory: [{ id: "cust-004-1", location: "Sala de Encomendas 2", status: "Entregue", at: "30 set · 11:30", note: "Entrega concluída." }] },
+  { id: "ord-005", code: "EN-24087", recipient: "Dona Francisca Oliveira", recipientDocument: "CPF 111.222.333-44", sender: "João Oliveira", senderDocument: "RG 44.555.666-7", originCity: "Manaus", city: "Coari", destination: "Porto de Coari", category: "Caixa", status: "Devolvida", receivedAt: "29 set · 14:52", contact: "(97) 99200-7712", notes: "Destinatário ausente na tentativa de entrega.", printed: true, amount: 60, discount: 0, discountNote: "", paymentStatus: "Pendente", storageLocation: "Sala de Encomendas 1", storageUpdatedAt: "30 set, 08:00", storageHistory: [{ id: "cust-005-1", location: "Sala de Encomendas 1", status: "Devolvida", at: "30 set · 08:00", note: "Devolvida por destinatário ausente." }] },
 ];
 
 export const initialProducts: Product[] = [
@@ -121,6 +149,16 @@ export const initialProducts: Product[] = [
   { id: "prod-005", name: "Repelente", category: "Higiene", unit: "unidade", price: 22, stock: 6, minimum: 8, updatedAt: "29 set, 16:40", location: "Prateleira C1" },
   { id: "prod-006", name: "Carregador USB", category: "Utilidades", unit: "unidade", price: 35, stock: 11, minimum: 5, updatedAt: "28 set, 10:05", location: "Balcão" },
 ];
+
+export const initialStockMovements: StockMovement[] = initialProducts.map((product) => ({
+  id: "stock-opening-" + product.id,
+  productId: product.id,
+  productName: product.name,
+  type: "Ajuste",
+  quantity: product.stock,
+  date: product.updatedAt,
+  reason: "Saldo inicial da demonstração",
+}));
 
 export const initialSales: Sale[] = [
   { id: "sale-001", code: "VD-0182", items: [{ productId: "prod-002", productName: "Refrigerante lata", quantity: 3, unitPrice: 6, total: 18 }], total: 18, paymentMethod: "PIX", soldAt: "Hoje, 10:15", period: "Semana" },
